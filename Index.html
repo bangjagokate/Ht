@@ -1,143 +1,93 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Walkie-Talkie Web PTT</title>
+  <title>Walkie Talkie Test</title>
   <style>
     body {
-      font-family: 'Segoe UI', sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      background: #1e1e2f;
-      color: #fff;
-    }
-    .walkie-container {
-      background: #2d2d44;
-      padding: 30px;
-      border-radius: 20px;
-      box-shadow: 0 0 15px rgba(0,0,0,0.4);
       text-align: center;
-    }
-    .walkie-title {
-      font-size: 24px;
-      margin-bottom: 20px;
-    }
-    .id-display, .status-display {
-      font-size: 14px;
-      margin: 10px 0;
-    }
-    input {
-      font-size: 16px;
-      padding: 10px;
-      border-radius: 10px;
-      border: none;
-      margin-bottom: 10px;
+      font-family: sans-serif;
+      background: #000;
+      color: white;
+      margin-top: 100px;
     }
     button {
-      padding: 15px 25px;
-      font-size: 18px;
+      font-size: 24px;
+      padding: 20px 40px;
+      background-color: red;
+      color: white;
       border: none;
-      border-radius: 50px;
-      cursor: pointer;
-      transition: 0.3s;
+      border-radius: 12px;
     }
-    #connectBtn {
-      background: #4CAF50;
-      color: white;
-      margin-bottom: 20px;
-    }
-    #talkBtn {
-      background: #555;
-      color: white;
-    }
-    #talkBtn.talking {
-      background: red;
+    button:active {
+      background-color: green;
     }
   </style>
 </head>
 <body>
-  <div class="walkie-container">
-    <div class="walkie-title">🎙️ Walkie-Talkie Web PTT</div>
-    <div class="id-display">Your ID: <span id="my-id">...</span></div>
-    <input id="target-id" placeholder="Enter partner ID" /> <br>
-    <button id="connectBtn" onclick="connectToPeer()">Connect</button> <br>
-    <button id="talkBtn" onmousedown="startTalking()" onmouseup="stopTalking()" ontouchstart="startTalking()" ontouchend="stopTalking()" disabled>Hold to Talk</button>
-    <div class="status-display" id="status">Status: Not connected</div>
-  </div>
+  <h1>Walkie Talkie Web Test</h1>
+  <button id="ptt">Hold to Talk</button>
 
-  <audio id="pttSound" src="https://www.soundjay.com/button/sounds/button-16.mp3" preload="auto"></audio>
-  <audio id="endSound" src="https://www.soundjay.com/button/sounds/button-3.mp3" preload="auto"></audio>
-
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
-    const peer = new Peer({
-      config: {
-        'iceServers': [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-      }
-    });
+    let localStream;
+    let mediaRecorder;
+    let ws;
 
-    let call, localStream;
-
-    peer.on('open', id => {
-      document.getElementById('my-id').textContent = id;
-    });
-
-    peer.on('call', incomingCall => {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-          localStream = stream;
-          incomingCall.answer(stream);
-          incomingCall.on('stream', remoteStream => {
-            playAudio(remoteStream);
-          });
-        })
-        .catch(err => alert('Microphone access denied'));
-    });
-
-    function connectToPeer() {
-      const targetId = document.getElementById('target-id').value;
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-          localStream = stream;
-          call = peer.call(targetId, stream);
-          call.on('stream', remoteStream => {
-            playAudio(remoteStream);
-          });
-          document.getElementById('status').textContent = 'Status: Connected to ' + targetId;
-          document.getElementById('talkBtn').disabled = false;
-        })
-        .catch(err => alert('Microphone access denied'));
-    }
-
-    function startTalking() {
-      if (localStream && localStream.getAudioTracks().length > 0) {
-        localStream.getAudioTracks()[0].enabled = true;
-        document.getElementById('talkBtn').classList.add('talking');
-        document.getElementById('pttSound').currentTime = 0;
-        document.getElementById('pttSound').play();
+    async function getMicrophone() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        alert("Akses mikrofon ditolak!");
+        console.error(err);
       }
     }
 
-    function stopTalking() {
-      if (localStream && localStream.getAudioTracks().length > 0) {
-        localStream.getAudioTracks()[0].enabled = false;
-        document.getElementById('talkBtn').classList.remove('talking');
-        document.getElementById('endSound').currentTime = 0;
-        document.getElementById('endSound').play();
+    async function startRecording() {
+      if (!localStream) return;
+
+      mediaRecorder = new MediaRecorder(localStream);
+      mediaRecorder.start(100);
+
+      mediaRecorder.ondataavailable = e => {
+        if (ws && ws.readyState === 1) {
+          ws.send(e.data);
+        }
+      };
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
       }
     }
 
-    function playAudio(stream) {
-      const audio = new Audio();
-      audio.srcObject = stream;
-      audio.play();
+    async function initWebSocket() {
+      ws = new WebSocket("wss://echo.websocket.events"); // Server testing
+
+      ws.onopen = () => {
+        console.log("WebSocket connected.");
+      };
+
+      ws.onmessage = e => {
+        const blob = new Blob([e.data]);
+        const audio = new Audio(URL.createObjectURL(blob));
+        audio.play();
+      };
+
+      ws.onerror = (e) => {
+        console.error("WebSocket error", e);
+      };
     }
+
+    // Inisialisasi
+    getMicrophone();
+    initWebSocket();
+
+    // Event Tombol
+    const btn = document.getElementById("ptt");
+    btn.addEventListener("mousedown", startRecording);
+    btn.addEventListener("mouseup", stopRecording);
+    btn.addEventListener("touchstart", startRecording);
+    btn.addEventListener("touchend", stopRecording);
   </script>
 </body>
 </html>
