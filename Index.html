@@ -1,61 +1,136 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Web PTT Voice Chat (Real-time)</title>
+  <title>Walkie-Talkie Web PTT</title>
   <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-    button { padding: 10px 20px; font-size: 18px; }
-    input { font-size: 16px; padding: 5px; margin: 5px; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #1e1e2f;
+      color: #fff;
+    }
+    .walkie-container {
+      background: #2d2d44;
+      padding: 30px;
+      border-radius: 20px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+    .walkie-title {
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+    .id-display, .status-display {
+      font-size: 14px;
+      margin: 10px 0;
+    }
+    input {
+      font-size: 16px;
+      padding: 10px;
+      border-radius: 10px;
+      border: none;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 15px 25px;
+      font-size: 18px;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    #connectBtn {
+      background: #4CAF50;
+      color: white;
+      margin-bottom: 20px;
+    }
+    #talkBtn {
+      background: #555;
+      color: white;
+    }
+    #talkBtn.talking {
+      background: red;
+    }
   </style>
 </head>
 <body>
-  <h2>Real-Time Push-to-Talk (PTT)</h2>
-  <p>Your ID: <span id="my-id">...</span></p>
-  <input id="target-id" placeholder="Enter partner ID" />
-  <button onclick="connectToPeer()">Connect</button>
-  <br><br>
-  <button id="talkBtn" onmousedown="startTalking()" onmouseup="stopTalking()" disabled>Hold to Talk</button>
-  <p id="status">Status: Not connected</p>
+  <div class="walkie-container">
+    <div class="walkie-title">🎙️ Walkie-Talkie Web PTT</div>
+    <div class="id-display">Your ID: <span id="my-id">...</span></div>
+    <input id="target-id" placeholder="Enter partner ID" /> <br>
+    <button id="connectBtn" onclick="connectToPeer()">Connect</button> <br>
+    <button id="talkBtn" onmousedown="startTalking()" onmouseup="stopTalking()" ontouchstart="startTalking()" ontouchend="stopTalking()" disabled>Hold to Talk</button>
+    <div class="status-display" id="status">Status: Not connected</div>
+  </div>
+
+  <audio id="pttSound" src="https://www.soundjay.com/button/sounds/button-16.mp3" preload="auto"></audio>
+  <audio id="endSound" src="https://www.soundjay.com/button/sounds/button-3.mp3" preload="auto"></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
-    let peer = new Peer();
-    let conn, call;
-    let localStream;
+    const peer = new Peer({
+      config: {
+        'iceServers': [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      }
+    });
+
+    let call, localStream;
 
     peer.on('open', id => {
       document.getElementById('my-id').textContent = id;
     });
 
     peer.on('call', incomingCall => {
-      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-        localStream = stream;
-        incomingCall.answer(stream);
-        incomingCall.on('stream', remoteStream => {
-          playAudio(remoteStream);
-        });
-      });
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          localStream = stream;
+          incomingCall.answer(stream);
+          incomingCall.on('stream', remoteStream => {
+            playAudio(remoteStream);
+          });
+        })
+        .catch(err => alert('Microphone access denied'));
     });
 
     function connectToPeer() {
       const targetId = document.getElementById('target-id').value;
-      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-        localStream = stream;
-        call = peer.call(targetId, stream);
-        call.on('stream', remoteStream => {
-          playAudio(remoteStream);
-        });
-        document.getElementById('status').textContent = 'Status: Connected to ' + targetId;
-        document.getElementById('talkBtn').disabled = false;
-      });
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          localStream = stream;
+          call = peer.call(targetId, stream);
+          call.on('stream', remoteStream => {
+            playAudio(remoteStream);
+          });
+          document.getElementById('status').textContent = 'Status: Connected to ' + targetId;
+          document.getElementById('talkBtn').disabled = false;
+        })
+        .catch(err => alert('Microphone access denied'));
     }
 
     function startTalking() {
-      localStream.getAudioTracks()[0].enabled = true;
+      if (localStream && localStream.getAudioTracks().length > 0) {
+        localStream.getAudioTracks()[0].enabled = true;
+        document.getElementById('talkBtn').classList.add('talking');
+        document.getElementById('pttSound').currentTime = 0;
+        document.getElementById('pttSound').play();
+      }
     }
 
     function stopTalking() {
-      localStream.getAudioTracks()[0].enabled = false;
+      if (localStream && localStream.getAudioTracks().length > 0) {
+        localStream.getAudioTracks()[0].enabled = false;
+        document.getElementById('talkBtn').classList.remove('talking');
+        document.getElementById('endSound').currentTime = 0;
+        document.getElementById('endSound').play();
+      }
     }
 
     function playAudio(stream) {
