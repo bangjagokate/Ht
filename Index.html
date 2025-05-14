@@ -1,61 +1,133 @@
-<!DOCTYPE html>
-<html>
+<!DOCTYPE html><html>
 <head>
-  <meta charset="UTF-8">
-  <title>WebRTC Walkie Talkie</title>
+  <meta charset="utf-8">
+  <title>Auto Walkie Talkie</title>
   <style>
-    body { background: #111; color: #fff; font-family: sans-serif; text-align: center; padding: 2em; }
-    textarea { width: 90%; height: 80px; margin-top: 10px; }
-    button { margin: 10px; padding: 10px 20px; font-size: 18px; }
+    body {
+      font-family: sans-serif;
+      background: #0b0c10;
+      color: white;
+      text-align: center;
+      padding-top: 50px;
+    }
+    button {
+      padding: 15px 30px;
+      font-size: 18px;
+      margin: 20px;
+      border: none;
+      border-radius: 10px;
+      background: #45a29e;
+      color: white;
+    }
+    .talking {
+      background: #66fcf1;
+      color: #0b0c10;
+    }
+    .status {
+      margin-top: 20px;
+      font-size: 16px;
+      color: #aaa;
+    }
   </style>
 </head>
 <body>
-  <h1>Walkie Talkie WebRTC</h1>
-
-  <button onclick="startMic()">1. Aktifkan Mikrofon</button><br>
-  <button onclick="createOffer()">2. Buat Offer</button>
-  <button onclick="createAnswer()">3. Jawab (Answer)</button><br>
-
-  <textarea id="localSDP" placeholder="Salin ini dan kirim ke temanmu"></textarea>
-  <textarea id="remoteSDP" placeholder="Tempel dari temanmu di sini"></textarea><br>
-  <button onclick="setRemote()">4. Hubungkan</button>
-
-  <script>
-    let pc = new RTCPeerConnection();
+  <h1>Walkie Talkie</h1>
+  <button id="talkBtn">Mulai Bicara</button>
+  <div class="status" id="status">Menunggu koneksi...</div>  <script>
     let localStream;
+    let remoteStream = new MediaStream();
+    let pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
 
-    async function startMic() {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      alert("Mikrofon aktif");
+    const talkBtn = document.getElementById("talkBtn");
+    const status = document.getElementById("status");
+
+    let isTalking = false;
+
+    async function getMic() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        status.textContent = "Mikrofon aktif, membuat koneksi...";
+      } catch (e) {
+        status.textContent = "Izin mikrofon ditolak!";
+        console.error(e);
+      }
     }
 
-    pc.ontrack = function (event) {
+    pc.ontrack = (event) => {
+      event.streams[0].getAudioTracks().forEach(track => {
+        remoteStream.addTrack(track);
+      });
       const audio = document.createElement("audio");
-      audio.srcObject = event.streams[0];
+      audio.srcObject = remoteStream;
       audio.autoplay = true;
-      document.body.appendChild(audio);
     };
 
-    async function createOffer() {
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        sendSignal(JSON.stringify(candidate));
+      }
+    };
+
+    // Simulasi signaling via localStorage (untuk demo lokal 1 device)
+    function sendSignal(data) {
+      localStorage.setItem("walkie-signal", data);
+    }
+
+    window.addEventListener("storage", async (event) => {
+      if (event.key === "walkie-signal" && event.newValue) {
+        const candidate = JSON.parse(event.newValue);
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    });
+
+    talkBtn.onclick = () => {
+      isTalking = !isTalking;
+      localStream.getAudioTracks()[0].enabled = isTalking;
+      talkBtn.classList.toggle("talking", isTalking);
+      talkBtn.textContent = isTalking ? "Berhenti Bicara" : "Mulai Bicara";
+    };
+
+    async function connect() {
+      await getMic();
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      document.getElementById("localSDP").value = JSON.stringify(offer);
+      localStorage.setItem("walkie-offer", JSON.stringify(offer));
+      const interval = setInterval(async () => {
+        const answerData = localStorage.getItem("walkie-answer");
+        if (answerData) {
+          clearInterval(interval);
+          const answer = JSON.parse(answerData);
+          await pc.setRemoteDescription(answer);
+          status.textContent = "Terhubung! Siap bicara.";
+        }
+      }, 1000);
     }
 
-    async function createAnswer() {
-      const offer = JSON.parse(document.getElementById("remoteSDP").value);
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      document.getElementById("localSDP").value = JSON.stringify(answer);
+    async function listen() {
+      await getMic();
+      const interval = setInterval(async () => {
+        const offerData = localStorage.getItem("walkie-offer");
+        if (offerData) {
+          clearInterval(interval);
+          const offer = JSON.parse(offerData);
+          await pc.setRemoteDescription(offer);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          localStorage.setItem("walkie-answer", JSON.stringify(answer));
+          status.textContent = "Terhubung! Siap bicara.";
+        }
+      }, 1000);
     }
 
-    async function setRemote() {
-      const remoteDesc = JSON.parse(document.getElementById("remoteSDP").value);
-      await pc.setRemoteDescription(new RTCSessionDescription(remoteDesc));
-      alert("Terhubung!");
-    }
-  </script>
-</body>
+    // Auto jalankan kedua sisi (untuk testing lokal)
+    connect();
+    listen();
+  </script></body>
 </html>
