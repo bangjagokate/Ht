@@ -1,93 +1,61 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Walkie Talkie Test</title>
+  <meta charset="UTF-8">
+  <title>WebRTC Walkie Talkie</title>
   <style>
-    body {
-      text-align: center;
-      font-family: sans-serif;
-      background: #000;
-      color: white;
-      margin-top: 100px;
-    }
-    button {
-      font-size: 24px;
-      padding: 20px 40px;
-      background-color: red;
-      color: white;
-      border: none;
-      border-radius: 12px;
-    }
-    button:active {
-      background-color: green;
-    }
+    body { background: #111; color: #fff; font-family: sans-serif; text-align: center; padding: 2em; }
+    textarea { width: 90%; height: 80px; margin-top: 10px; }
+    button { margin: 10px; padding: 10px 20px; font-size: 18px; }
   </style>
 </head>
 <body>
-  <h1>Walkie Talkie Web Test</h1>
-  <button id="ptt">Hold to Talk</button>
+  <h1>Walkie Talkie WebRTC</h1>
+
+  <button onclick="startMic()">1. Aktifkan Mikrofon</button><br>
+  <button onclick="createOffer()">2. Buat Offer</button>
+  <button onclick="createAnswer()">3. Jawab (Answer)</button><br>
+
+  <textarea id="localSDP" placeholder="Salin ini dan kirim ke temanmu"></textarea>
+  <textarea id="remoteSDP" placeholder="Tempel dari temanmu di sini"></textarea><br>
+  <button onclick="setRemote()">4. Hubungkan</button>
 
   <script>
+    let pc = new RTCPeerConnection();
     let localStream;
-    let mediaRecorder;
-    let ws;
 
-    async function getMicrophone() {
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err) {
-        alert("Akses mikrofon ditolak!");
-        console.error(err);
-      }
+    async function startMic() {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      alert("Mikrofon aktif");
     }
 
-    async function startRecording() {
-      if (!localStream) return;
+    pc.ontrack = function (event) {
+      const audio = document.createElement("audio");
+      audio.srcObject = event.streams[0];
+      audio.autoplay = true;
+      document.body.appendChild(audio);
+    };
 
-      mediaRecorder = new MediaRecorder(localStream);
-      mediaRecorder.start(100);
-
-      mediaRecorder.ondataavailable = e => {
-        if (ws && ws.readyState === 1) {
-          ws.send(e.data);
-        }
-      };
+    async function createOffer() {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      document.getElementById("localSDP").value = JSON.stringify(offer);
     }
 
-    function stopRecording() {
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-      }
+    async function createAnswer() {
+      const offer = JSON.parse(document.getElementById("remoteSDP").value);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      document.getElementById("localSDP").value = JSON.stringify(answer);
     }
 
-    async function initWebSocket() {
-      ws = new WebSocket("wss://echo.websocket.events"); // Server testing
-
-      ws.onopen = () => {
-        console.log("WebSocket connected.");
-      };
-
-      ws.onmessage = e => {
-        const blob = new Blob([e.data]);
-        const audio = new Audio(URL.createObjectURL(blob));
-        audio.play();
-      };
-
-      ws.onerror = (e) => {
-        console.error("WebSocket error", e);
-      };
+    async function setRemote() {
+      const remoteDesc = JSON.parse(document.getElementById("remoteSDP").value);
+      await pc.setRemoteDescription(new RTCSessionDescription(remoteDesc));
+      alert("Terhubung!");
     }
-
-    // Inisialisasi
-    getMicrophone();
-    initWebSocket();
-
-    // Event Tombol
-    const btn = document.getElementById("ptt");
-    btn.addEventListener("mousedown", startRecording);
-    btn.addEventListener("mouseup", stopRecording);
-    btn.addEventListener("touchstart", startRecording);
-    btn.addEventListener("touchend", stopRecording);
   </script>
 </body>
 </html>
