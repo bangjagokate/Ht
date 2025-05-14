@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Web PTT Voice Chat (Real-time)</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    button { padding: 10px 20px; font-size: 18px; }
+    input { font-size: 16px; padding: 5px; margin: 5px; }
+  </style>
+</head>
+<body>
+  <h2>Real-Time Push-to-Talk (PTT)</h2>
+  <p>Your ID: <span id="my-id">...</span></p>
+  <input id="target-id" placeholder="Enter partner ID" />
+  <button onclick="connectToPeer()">Connect</button>
+  <br><br>
+  <button id="talkBtn" onmousedown="startTalking()" onmouseup="stopTalking()" disabled>Hold to Talk</button>
+  <p id="status">Status: Not connected</p>
+
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script>
+    let peer = new Peer();
+    let conn, call;
+    let localStream;
+
+    peer.on('open', id => {
+      document.getElementById('my-id').textContent = id;
+    });
+
+    peer.on('call', incomingCall => {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        localStream = stream;
+        incomingCall.answer(stream);
+        incomingCall.on('stream', remoteStream => {
+          playAudio(remoteStream);
+        });
+      });
+    });
+
+    function connectToPeer() {
+      const targetId = document.getElementById('target-id').value;
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        localStream = stream;
+        call = peer.call(targetId, stream);
+        call.on('stream', remoteStream => {
+          playAudio(remoteStream);
+        });
+        document.getElementById('status').textContent = 'Status: Connected to ' + targetId;
+        document.getElementById('talkBtn').disabled = false;
+      });
+    }
+
+    function startTalking() {
+      localStream.getAudioTracks()[0].enabled = true;
+    }
+
+    function stopTalking() {
+      localStream.getAudioTracks()[0].enabled = false;
+    }
+
+    function playAudio(stream) {
+      const audio = new Audio();
+      audio.srcObject = stream;
+      audio.play();
+    }
+  </script>
+</body>
+</html>
