@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Walkie-Talkie Fixed</title>
+    <title>Walkie-Talkie with Online Users</title>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -24,6 +24,7 @@
         h1 {
             color: #4285f4;
             text-align: center;
+            margin-bottom: 20px;
         }
         input {
             padding: 10px;
@@ -83,6 +84,28 @@
         .hidden {
             display: none;
         }
+        .user-list {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        .user-item {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 3px;
+            background-color: #e6f2ff;
+            border-radius: 15px;
+            font-size: 14px;
+        }
+        .user-item.me {
+            background-color: #cce0ff;
+            font-weight: bold;
+        }
+        .online-count {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
         .debug {
             margin-top: 20px;
             padding: 10px;
@@ -97,7 +120,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Walkie-Talkie Fixed</h1>
+        <h1>Walkie-Talkie with Online Users</h1>
         
         <div id="login-section">
             <input type="text" id="username" placeholder="Your name">
@@ -106,6 +129,11 @@
         
         <div id="app-section" class="hidden">
             <div id="status">Connected to Public Room</div>
+            
+            <div class="user-list">
+                <div class="online-count">Online Users: <span id="user-count">0</span></div>
+                <div id="user-list-container"></div>
+            </div>
             
             <div id="audio-visualizer">
                 <!-- Visualizer bars will be added here -->
@@ -147,6 +175,8 @@
         const talkBtn = document.getElementById('talk-btn');
         const visualizerEl = document.getElementById('audio-visualizer');
         const debugLogEl = document.getElementById('debug-log');
+        const userListContainer = document.getElementById('user-list-container');
+        const userCountEl = document.getElementById('user-count');
         
         // App state
         const ROOM_NAME = "public_room";
@@ -221,6 +251,31 @@
         
         function setupRoomListeners() {
             debugLog("Setting up room listeners...");
+            
+            // Listen for users in the room
+            database.ref('users').orderByChild('room').equalTo(ROOM_NAME).on('value', (snapshot) => {
+                const users = snapshot.val() || {};
+                userListContainer.innerHTML = '';
+                let onlineCount = 0;
+                
+                Object.entries(users).forEach(([uid, user]) => {
+                    if (user.online) {
+                        onlineCount++;
+                        const userEl = document.createElement('div');
+                        userEl.className = 'user-item';
+                        if (uid === currentUser.uid) {
+                            userEl.classList.add('me');
+                            userEl.textContent = `${user.username} (You)`;
+                        } else {
+                            userEl.textContent = user.username;
+                        }
+                        userListContainer.appendChild(userEl);
+                    }
+                });
+                
+                userCountEl.textContent = onlineCount;
+                debugLog(`Updated online users: ${onlineCount} users`);
+            });
             
             // Listen for messages in the room
             database.ref(`rooms/${ROOM_NAME}/messages`).on('child_added', (snapshot) => {
