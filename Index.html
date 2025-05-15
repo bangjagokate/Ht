@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Walkie-Talkie</title>
+    <title>Simple Walkie-Talkie</title>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 600px;
+            max-width: 500px;
             margin: 0 auto;
             padding: 20px;
             background-color: #f5f5f5;
@@ -25,28 +25,23 @@
             color: #4285f4;
             text-align: center;
         }
-        .section {
-            margin-bottom: 20px;
-            padding: 15px;
-            background-color: #f9f9f9;
-            border-radius: 5px;
-        }
         input {
             padding: 10px;
             width: 100%;
-            box-sizing: border-box;
             margin-bottom: 10px;
             border: 1px solid #ddd;
-            border-radius: 4px;
+            border-radius: 5px;
+            box-sizing: border-box;
         }
         button {
-            padding: 10px 15px;
+            padding: 12px;
+            width: 100%;
             background-color: #4285f4;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 5px;
             cursor: pointer;
-            width: 100%;
+            font-size: 16px;
             margin-bottom: 10px;
         }
         button:disabled {
@@ -54,73 +49,77 @@
         }
         #talk-btn {
             background-color: #34a853;
-            height: 60px;
+            height: 70px;
             font-size: 18px;
+            margin: 20px 0;
         }
         #status {
             padding: 10px;
             background-color: #e8f0fe;
-            border-radius: 4px;
-            margin-bottom: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            text-align: center;
         }
-        #user-list, #message-log {
-            margin-top: 10px;
+        #users {
+            margin: 15px 0;
         }
-        .user-item, .message-item {
-            padding: 8px;
-            margin: 5px 0;
-            background-color: white;
-            border-radius: 4px;
-            border: 1px solid #eee;
-        }
-        .hidden {
-            display: none;
+        .user {
+            display: inline-block;
+            padding: 5px 10px;
+            background-color: #f1f1f1;
+            border-radius: 15px;
+            margin: 5px;
         }
         #audio-visualizer {
             height: 50px;
             background-color: #f0f0f0;
-            margin: 10px 0;
+            margin: 15px 0;
             display: flex;
             align-items: flex-end;
         }
-        .visualizer-bar {
+        .bar {
             flex: 1;
             background-color: #4285f4;
-            margin: 0 1px;
+            margin: 0 2px;
             min-height: 1px;
+        }
+        .hidden {
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Web Walkie-Talkie</h1>
+        <h1>Walkie-Talkie Room</h1>
         
-        <div id="auth-section" class="section">
-            <h2>Login</h2>
-            <input type="text" id="username" placeholder="Enter your username">
-            <button id="login-btn">Login</button>
+        <div id="login-section">
+            <input type="text" id="username" placeholder="Your name">
+            <button id="join-btn">Join Room</button>
         </div>
         
-        <div id="app-section" class="section hidden">
-            <h2>Channel</h2>
-            <input type="text" id="channel-name" placeholder="Enter channel name">
-            <button id="join-channel">Join Channel</button>
+        <div id="app-section" class="hidden">
+            <div id="status">Connected to: Public Room</div>
             
-            <div id="status">Status: Disconnected</div>
+            <div id="users">
+                <h3>Online Users:</h3>
+                <div id="user-list"></div>
+            </div>
             
-            <div id="audio-visualizer"></div>
-            <button id="talk-btn" disabled>Hold to Talk</button>
+            <div id="audio-visualizer">
+                <!-- Visualizer bars will be added here -->
+            </div>
             
-            <h3>Online Users</h3>
-            <div id="user-list"></div>
+            <button id="talk-btn">Hold to Talk</button>
             
-            <h3>Messages</h3>
-            <div id="message-log"></div>
+            <div id="messages">
+                <h3>Messages:</h3>
+                <div id="message-log"></div>
+            </div>
         </div>
     </div>
 
     <script>
-        // Initialize Firebase
+        // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyD2jt-c0Fdy7TfmEeZR3ChEmxXO1KdJP7M",
             authDomain: "walkietalkie-4bf33.firebaseapp.com",
@@ -132,172 +131,151 @@
             measurementId: "G-FJJ4Q8P12V"
         };
         
+        // Initialize Firebase
         const app = firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
         const auth = firebase.auth();
-
+        
         // DOM elements
-        const authSection = document.getElementById('auth-section');
+        const loginSection = document.getElementById('login-section');
         const appSection = document.getElementById('app-section');
         const usernameInput = document.getElementById('username');
-        const loginBtn = document.getElementById('login-btn');
-        const channelNameInput = document.getElementById('channel-name');
-        const joinChannelBtn = document.getElementById('join-channel');
+        const joinBtn = document.getElementById('join-btn');
         const statusEl = document.getElementById('status');
         const talkBtn = document.getElementById('talk-btn');
         const userListEl = document.getElementById('user-list');
         const messageLogEl = document.getElementById('message-log');
         const visualizerEl = document.getElementById('audio-visualizer');
-
+        
         // App state
+        const ROOM_NAME = "public_room"; // Single default room
         let currentUser = null;
-        let currentChannel = null;
         let mediaRecorder = null;
         let audioChunks = [];
-        let audioContext = null;
-        let analyser = null;
-        let microphone = null;
-        let animationId = null;
-
-        // Initialize visualizer bars
+        
+        // Create visualizer bars
         for (let i = 0; i < 20; i++) {
             const bar = document.createElement('div');
-            bar.className = 'visualizer-bar';
+            bar.className = 'bar';
             visualizerEl.appendChild(bar);
         }
-
-        // Login function
-        loginBtn.addEventListener('click', async () => {
+        
+        // Join the room
+        joinBtn.addEventListener('click', async () => {
             const username = usernameInput.value.trim();
             if (!username) return;
             
             try {
+                // Anonymous login
                 const userCredential = await auth.signInAnonymously();
                 currentUser = {
                     uid: userCredential.user.uid,
                     username: username
                 };
                 
-                // Save user to database
-                await database.ref('users/' + currentUser.uid).set({
+                // Add user to room
+                await database.ref(`users/${currentUser.uid}`).set({
                     username: username,
                     online: true,
+                    room: ROOM_NAME,
                     lastActive: firebase.database.ServerValue.TIMESTAMP
                 });
                 
-                authSection.classList.add('hidden');
+                // Switch to app view
+                loginSection.classList.add('hidden');
                 appSection.classList.remove('hidden');
-                statusEl.textContent = 'Status: Connected';
+                
+                // Setup room listeners
+                setupRoomListeners();
                 
             } catch (error) {
-                statusEl.textContent = 'Error: ' + error.message;
-                console.error('Login error:', error);
+                console.error("Join error:", error);
+                statusEl.textContent = "Error joining room";
             }
         });
-
-        // Join channel function
-        joinChannelBtn.addEventListener('click', async () => {
-            const channelName = channelNameInput.value.trim();
-            if (!channelName || !currentUser) return;
-            
-            currentChannel = channelName;
-            statusEl.textContent = `Status: Joined channel ${channelName}`;
-            
-            // Update user's channel
-            await database.ref('users/' + currentUser.uid).update({
-                channel: channelName,
-                lastActive: firebase.database.ServerValue.TIMESTAMP
-            });
-            
-            // Setup listeners
-            setupChannelListeners(channelName);
-            talkBtn.disabled = false;
-        });
-
-        function setupChannelListeners(channelName) {
-            // Listen for users in the same channel
-            database.ref('users').orderByChild('channel').equalTo(channelName).on('value', snapshot => {
-                userListEl.innerHTML = '';
+        
+        function setupRoomListeners() {
+            // Listen for users in the room
+            database.ref('users').orderByChild('room').equalTo(ROOM_NAME).on('value', (snapshot) => {
                 const users = snapshot.val() || {};
+                userListEl.innerHTML = '';
                 
-                Object.keys(users).forEach(uid => {
-                    if (uid !== currentUser.uid && users[uid].online) {
-                        const userDiv = document.createElement('div');
-                        userDiv.className = 'user-item';
-                        userDiv.textContent = users[uid].username;
-                        userListEl.appendChild(userDiv);
+                Object.entries(users).forEach(([uid, user]) => {
+                    if (user.online) {
+                        const userEl = document.createElement('span');
+                        userEl.className = 'user';
+                        userEl.textContent = user.username;
+                        userListEl.appendChild(userEl);
                     }
                 });
             });
             
-            // Listen for new audio messages
-            database.ref('channels/' + channelName).on('child_added', snapshot => {
+            // Listen for messages in the room
+            database.ref(`rooms/${ROOM_NAME}/messages`).on('child_added', (snapshot) => {
                 const message = snapshot.val();
                 if (message.sender !== currentUser.uid) {
                     playAudioMessage(message.audioData);
                     
-                    const messageDiv = document.createElement('div');
-                    messageDiv.className = 'message-item';
-                    messageDiv.textContent = `Message from ${message.senderName}`;
-                    messageLogEl.appendChild(messageDiv);
+                    const messageEl = document.createElement('div');
+                    messageEl.textContent = `${message.senderName}: [voice message]`;
+                    messageLogEl.appendChild(messageEl);
                 }
             });
         }
-
+        
         // Audio functions
         talkBtn.addEventListener('mousedown', startRecording);
         talkBtn.addEventListener('mouseup', stopRecording);
         talkBtn.addEventListener('touchstart', startRecording);
         talkBtn.addEventListener('touchend', stopRecording);
-
+        
         async function startRecording(e) {
             e.preventDefault();
-            if (!currentChannel) return;
             
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // Setup audio visualization
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 64;
-                
-                microphone = audioContext.createMediaStreamSource(stream);
-                microphone.connect(analyser);
-                
-                const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                
-                function updateVisualizer() {
-                    analyser.getByteFrequencyData(dataArray);
-                    const bars = visualizerEl.querySelectorAll('.visualizer-bar');
-                    
-                    bars.forEach((bar, i) => {
-                        const value = dataArray[i] / 255;
-                        bar.style.height = `${value * 100}%`;
-                    });
-                    
-                    animationId = requestAnimationFrame(updateVisualizer);
-                }
-                
-                updateVisualizer();
-                
-                // Setup media recorder
                 mediaRecorder = new MediaRecorder(stream);
                 audioChunks = [];
                 
-                mediaRecorder.ondataavailable = e => {
+                // Start visualizer animation
+                startVisualizer(stream);
+                
+                mediaRecorder.ondataavailable = (e) => {
                     audioChunks.push(e.data);
                 };
                 
                 mediaRecorder.start();
-                statusEl.textContent = 'Status: Recording...';
+                statusEl.textContent = "Recording...";
                 
             } catch (error) {
-                console.error('Recording error:', error);
-                statusEl.textContent = 'Error: ' + error.message;
+                console.error("Recording error:", error);
+                statusEl.textContent = "Error accessing microphone";
             }
         }
-
+        
+        function startVisualizer(stream) {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const microphone = audioContext.createMediaStreamSource(stream);
+            microphone.connect(analyser);
+            
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            const bars = visualizerEl.querySelectorAll('.bar');
+            
+            function update() {
+                analyser.getByteFrequencyData(dataArray);
+                
+                bars.forEach((bar, i) => {
+                    const value = dataArray[i] / 255;
+                    bar.style.height = `${value * 100}%`;
+                });
+                
+                animationId = requestAnimationFrame(update);
+            }
+            
+            update();
+        }
+        
         async function stopRecording(e) {
             e.preventDefault();
             if (!mediaRecorder) return;
@@ -305,53 +283,47 @@
             mediaRecorder.stop();
             
             mediaRecorder.onstop = async () => {
-                // Stop visualization
+                // Stop visualizer
                 if (animationId) {
                     cancelAnimationFrame(animationId);
-                }
-                
-                if (microphone) {
-                    microphone.disconnect();
                 }
                 
                 // Stop all tracks
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
                 
-                // Send audio
+                // Send audio message
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
                 const base64Data = await blobToBase64(audioBlob);
                 
-                await database.ref('channels/' + currentChannel).push().set({
+                await database.ref(`rooms/${ROOM_NAME}/messages`).push().set({
                     sender: currentUser.uid,
                     senderName: currentUser.username,
                     audioData: base64Data,
                     timestamp: firebase.database.ServerValue.TIMESTAMP
                 });
                 
-                statusEl.textContent = `Status: Joined channel ${currentChannel}`;
+                statusEl.textContent = "Connected to: Public Room";
             };
         }
-
+        
         function blobToBase64(blob) {
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                reader.onerror = reject;
                 reader.readAsDataURL(blob);
             });
         }
-
+        
         function playAudioMessage(base64Data) {
             const audio = new Audio(`data:audio/webm;codecs=opus;base64,${base64Data}`);
-            audio.play().catch(e => console.error('Audio play error:', e));
+            audio.play().catch(e => console.log("Play error:", e));
         }
-
+        
         // Cleanup on exit
         window.addEventListener('beforeunload', () => {
             if (currentUser) {
-                database.ref('users/' + currentUser.uid).update({
+                database.ref(`users/${currentUser.uid}`).update({
                     online: false,
-                    channel: null,
                     lastActive: firebase.database.ServerValue.TIMESTAMP
                 });
             }
