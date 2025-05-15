@@ -315,14 +315,6 @@
                     }
                 };
                 
-                mediaRecorder.onstop = () => {
-                    debugLog("MediaRecorder stopped");
-                };
-                
-                mediaRecorder.onerror = (e) => {
-                    debugLog(`MediaRecorder error: ${e.error.name}`);
-                };
-                
                 mediaRecorder.start(100); // Collect data every 100ms
                 debugLog("MediaRecorder started");
                 
@@ -390,9 +382,6 @@
                         debugLog("No audio data to send");
                         resolve();
                     }
-                    
-                    // Clean up
-                    mediaRecorder.removeEventListener('stop', onStop);
                 };
                 
                 mediaRecorder.addEventListener('stop', onStop, { once: true });
@@ -430,11 +419,6 @@
                     bar.style.backgroundColor = '#4285f4';
                 });
                 debugLog("Audio playback finished");
-            };
-            
-            audio.onerror = (e) => {
-                debugLog(`Audio play error: ${e.target.error}`);
-                clearInterval(interval);
             };
             
             audio.play().catch(e => debugLog(`Audio play failed: ${e.message}`));
