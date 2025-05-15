@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web WalkieTalkie</title>
+    <title>Web WalkieTalkie (Fixed)</title>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -90,11 +89,19 @@
             margin-right: 2px;
             display: inline-block;
         }
+        .debug-info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff8e1;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Web WalkieTalkie</h1>
+        <h1>Web WalkieTalkie (Fixed)</h1>
         <div id="auth-container">
             <input type="text" id="username" placeholder="Nama pengguna">
             <button id="login-btn">Masuk</button>
@@ -109,6 +116,10 @@
             <button id="talk-btn" disabled>Tahan untuk Bicara</button>
             <div id="user-list"></div>
             <div id="message-log"></div>
+            <div class="debug-info">
+                <div>Debug Info:</div>
+                <div id="debug-log"></div>
+            </div>
         </div>
     </div>
 
@@ -127,7 +138,6 @@
 
         // Initialize Firebase
         const app = firebase.initializeApp(firebaseConfig);
-        const analytics = firebase.analytics();
         const database = firebase.database();
         const auth = firebase.auth();
 
@@ -142,6 +152,7 @@
         let microphone = null;
         let dataArray = null;
         let animationId = null;
+        let audioStream = null;
 
         // Elemen DOM
         const authContainer = document.getElementById('auth-container');
@@ -155,11 +166,23 @@
         const userListEl = document.getElementById('user-list');
         const messageLogEl = document.getElementById('message-log');
         const visualizerEl = document.getElementById('audio-visualizer');
+        const debugLogEl = document.getElementById('debug-log');
+
+        // Fungsi debug logging
+        function debugLog(message) {
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugLogEl.appendChild(logEntry);
+            debugLogEl.scrollTop = debugLogEl.scrollHeight;
+            console.log(message);
+        }
 
         // Fungsi untuk login anonim
         loginBtn.addEventListener('click', () => {
             const username = usernameInput.value.trim();
             if (!username) return;
+            
+            debugLog(`Mencoba login dengan username: ${username}`);
             
             auth.signInAnonymously()
                 .then(() => {
@@ -167,11 +190,15 @@
                         uid: auth.currentUser.uid,
                         username: username
                     };
+                    debugLog(`Login berhasil. User ID: ${currentUser.uid}`);
+                    
                     // Simpan info pengguna ke Realtime Database
                     database.ref('users/' + currentUser.uid).set({
                         username: username,
                         online: true,
                         lastActive: firebase.database.ServerValue.TIMESTAMP
+                    }).then(() => {
+                        debugLog(`Data pengguna disimpan ke database`);
                     });
                     
                     authContainer.classList.add('hidden');
@@ -179,34 +206,47 @@
                     statusEl.textContent = 'Status: Online';
                 })
                 .catch(error => {
-                    console.error('Login error:', error);
+                    debugLog(`Error login: ${error.message}`);
                     statusEl.textContent = 'Error: Gagal login';
                 });
         });
 
         // Fungsi untuk bergabung dengan channel
-        joinChannelBtn.addEventListener('click', () => {
+        joinChannelBtn.addEventListener('click', async () => {
             const channelName = channelNameInput.value.trim();
             if (!channelName || !currentUser) return;
+            
+            debugLog(`Mencoba bergabung dengan channel: ${channelName}`);
             
             currentChannel = channelName;
             statusEl.textContent = `Status: Bergabung dengan channel ${channelName}`;
             
-            // Setup listener untuk pesan audio
-            setupChannelListeners(channelName);
-            
-            // Update status pengguna
-            database.ref('users/' + currentUser.uid).update({
-                channel: channelName,
-                lastActive: firebase.database.ServerValue.TIMESTAMP
-            });
-            
-            // Aktifkan tombol talk
-            talkBtn.disabled = false;
+            try {
+                // Setup listener untuk pesan audio
+                await setupChannelListeners(channelName);
+                
+                // Update status pengguna
+                await database.ref('users/' + currentUser.uid).update({
+                    channel: channelName,
+                    lastActive: firebase.database.ServerValue.TIMESTAMP
+                });
+                
+                debugLog(`Berhasil bergabung dengan channel ${channelName}`);
+                
+                // Aktifkan tombol talk
+                talkBtn.disabled = false;
+                
+                // Inisialisasi AudioContext
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                debugLog(`AudioContext initialized`);
+            } catch (error) {
+                debugLog(`Error bergabung channel: ${error.message}`);
+                statusEl.textContent = 'Error: Gagal bergabung channel';
+            }
         });
 
         // Setup listener untuk channel
-        function setupChannelListeners(channelName) {
+        async function setupChannelListeners(channelName) {
             // Listen untuk pengguna dalam channel yang sama
             database.ref('users').orderByChild('channel').equalTo(channelName).on('value', snapshot => {
                 userListEl.innerHTML = '<h3>Pengguna Online:</h3>';
@@ -220,12 +260,16 @@
                         userListEl.appendChild(userDiv);
                     }
                 });
+                
+                debugLog(`Daftar pengguna diperbarui: ${Object.keys(users).length} pengguna online`);
             });
             
             // Listen untuk pesan audio baru
             database.ref('channels/' + channelName).on('child_added', snapshot => {
                 const message = snapshot.val();
                 if (message.sender !== currentUser.uid) {
+                    debugLog(`Menerima pesan audio dari ${message.senderName}`);
+                    
                     playAudioMessage(message.audioData);
                     
                     // Tambahkan ke log pesan
@@ -242,66 +286,107 @@
             e.preventDefault();
             if (isRecording || !currentChannel) return;
             
+            debugLog(`Memulai rekaman audio`);
             statusEl.textContent = 'Status: Merekam...';
             audioChunks = [];
             
             try {
+                // Dapatkan akses microphone
+                audioStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                debugLog(`Berhasil mendapatkan akses microphone`);
+                
                 // Setup Audio Context dan Analyser
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
                 analyser = audioContext.createAnalyser();
                 analyser.fftSize = 64;
                 
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                microphone = audioContext.createMediaStreamSource(stream);
+                microphone = audioContext.createMediaStreamSource(audioStream);
                 microphone.connect(analyser);
                 
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
                 startVisualizer();
                 
-                mediaRecorder = new MediaRecorder(stream);
+                // Setup MediaRecorder
+                mediaRecorder = new MediaRecorder(audioStream);
                 mediaRecorder.start();
                 isRecording = true;
                 
                 mediaRecorder.ondataavailable = e => {
                     audioChunks.push(e.data);
+                    debugLog(`Menerima data audio chunk (${e.data.size} bytes)`);
                 };
                 
                 mediaRecorder.onstop = () => {
+                    debugLog(`Rekaman dihentikan`);
                     stopVisualizer();
                     if (microphone) {
                         microphone.disconnect();
                     }
                 };
+                
+                debugLog(`Rekaman audio dimulai`);
             } catch (error) {
-                console.error('Error accessing microphone:', error);
+                debugLog(`Error mengakses microphone: ${error.message}`);
                 statusEl.textContent = 'Error: Akses mikrofon ditolak';
             }
         }
 
         // Fungsi untuk menghentikan rekaman
-        function stopRecording(e) {
+        async function stopRecording(e) {
             e.preventDefault();
             if (!isRecording || !mediaRecorder) return;
+            
+            debugLog(`Menghentikan rekaman dan mengirim audio`);
             
             mediaRecorder.stop();
             isRecording = false;
             
-            mediaRecorder.onstop = () => {
-                statusEl.textContent = `Status: Online di channel ${currentChannel}`;
-                
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                convertBlobToBase64(audioBlob)
-                    .then(base64Data => {
-                        // Kirim pesan audio ke Firebase
-                        const newMessageRef = database.ref('channels/' + currentChannel).push();
-                        newMessageRef.set({
-                            sender: currentUser.uid,
-                            senderName: currentUser.username,
-                            audioData: base64Data,
-                            timestamp: firebase.database.ServerValue.TIMESTAMP
+            // Hentikan semua track microphone
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+            }
+            
+            // Tunggu sampai onstop terpanggil
+            await new Promise(resolve => {
+                mediaRecorder.onstop = () => {
+                    statusEl.textContent = `Status: Online di channel ${currentChannel}`;
+                    
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                    debugLog(`Audio blob created: ${audioBlob.size} bytes`);
+                    
+                    convertBlobToBase64(audioBlob)
+                        .then(base64Data => {
+                            debugLog(`Mengkonversi audio ke base64 (${base64Data.length} chars)`);
+                            
+                            // Kirim pesan audio ke Firebase
+                            const newMessageRef = database.ref('channels/' + currentChannel).push();
+                            newMessageRef.set({
+                                sender: currentUser.uid,
+                                senderName: currentUser.username,
+                                audioData: base64Data,
+                                timestamp: firebase.database.ServerValue.TIMESTAMP
+                            }).then(() => {
+                                debugLog(`Pesan audio berhasil dikirim ke channel ${currentChannel}`);
+                            }).catch(error => {
+                                debugLog(`Error mengirim pesan: ${error.message}`);
+                            });
+                        })
+                        .catch(error => {
+                            debugLog(`Error konversi audio: ${error.message}`);
                         });
-                    });
-            };
+                    
+                    resolve();
+                };
+            });
         }
 
         // Visualizer audio
@@ -327,12 +412,14 @@
             }
             
             updateVisualizer();
+            debugLog(`Audio visualizer dimulai`);
         }
 
         function stopVisualizer() {
             if (animationId) {
                 cancelAnimationFrame(animationId);
                 animationId = null;
+                debugLog(`Audio visualizer dihentikan`);
             }
             visualizerEl.innerHTML = '';
         }
@@ -341,7 +428,9 @@
         function convertBlobToBase64(blob) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onerror = reject;
+                reader.onerror = () => {
+                    reject(new Error('Gagal membaca blob'));
+                };
                 reader.onload = () => {
                     resolve(reader.result.split(',')[1]);
                 };
@@ -351,11 +440,25 @@
 
         // Fungsi untuk memutar audio
         function playAudioMessage(base64Data) {
-            const audio = new Audio(`data:audio/webm;base64,${base64Data}`);
-            audio.play()
-                .catch(error => {
-                    console.error('Error playing audio:', error);
-                });
+            debugLog(`Memulai memutar pesan audio`);
+            
+            const audio = new Audio(`data:audio/webm;codecs=opus;base64,${base64Data}`);
+            
+            audio.onerror = (e) => {
+                debugLog(`Error memutar audio: ${e.target.error.message}`);
+            };
+            
+            audio.onplay = () => {
+                debugLog(`Pesan audio mulai diputar`);
+            };
+            
+            audio.onended = () => {
+                debugLog(`Pesan audio selesai diputar`);
+            };
+            
+            audio.play().catch(error => {
+                debugLog(`Error memutar audio: ${error.message}`);
+            });
         }
 
         // Event listeners untuk tombol talk
@@ -369,10 +472,21 @@
             if (currentUser) {
                 database.ref('users/' + currentUser.uid).update({
                     online: false,
-                    lastActive: firebase.database.ServerValue.TIMESTAMP
+                    lastActive: firebase.database.ServerValue.TIMESTAMP,
+                    channel: null
+                }).then(() => {
+                    debugLog(`Status pengguna diperbarui sebelum keluar`);
                 });
             }
+            
+            // Hentikan semua stream audio
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+            }
         });
+
+        // Inisialisasi debug log
+        debugLog(`Aplikasi diinisialisasi. Menunggu input pengguna...`);
     </script>
 </body>
 </html>
