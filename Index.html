@@ -1,133 +1,378 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <title>WalkieTalkie Firebase</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      background: #111;
-      color: #fff;
-    }
-    #status {
-      margin-bottom: 10px;
-    }
-    button {
-      background: #444;
-      color: white;
-      font-size: 18px;
-      padding: 15px 30px;
-      border: none;
-      border-radius: 10px;
-    }
-    button.active {
-      background: red;
-    }
-    #indicator {
-      margin-top: 20px;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background-color: gray;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web WalkieTalkie</title>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #4285f4;
+            text-align: center;
+        }
+        #auth-container, #app-container {
+            margin-top: 20px;
+        }
+        .hidden {
+            display: none;
+        }
+        input {
+            padding: 10px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:disabled {
+            background-color: #cccccc;
+        }
+        #talk-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 18px;
+            background-color: #34a853;
+        }
+        #status {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f1f1f1;
+            border-radius: 4px;
+        }
+        .user-item, .message-item {
+            padding: 8px;
+            margin: 5px 0;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .channel-control {
+            margin-bottom: 15px;
+        }
+        #audio-visualizer {
+            width: 100%;
+            height: 60px;
+            background-color: #f0f0f0;
+            margin: 10px 0;
+            position: relative;
+            overflow: hidden;
+        }
+        .visualizer-bar {
+            position: absolute;
+            bottom: 0;
+            width: 4px;
+            background-color: #4285f4;
+            margin-right: 2px;
+            display: inline-block;
+        }
+    </style>
 </head>
 <body>
-  <div id="status">Connecting...</div>
-  <button id="talk">Hold to Talk</button>
-  <div id="indicator"></div>
+    <div class="container">
+        <h1>Web WalkieTalkie</h1>
+        <div id="auth-container">
+            <input type="text" id="username" placeholder="Nama pengguna">
+            <button id="login-btn">Masuk</button>
+        </div>
+        <div id="app-container" class="hidden">
+            <div class="channel-control">
+                <input type="text" id="channel-name" placeholder="Nama channel">
+                <button id="join-channel">Gabung Channel</button>
+            </div>
+            <div id="status">Status: Tidak terhubung</div>
+            <div id="audio-visualizer"></div>
+            <button id="talk-btn" disabled>Tahan untuk Bicara</button>
+            <div id="user-list"></div>
+            <div id="message-log"></div>
+        </div>
+    </div>
 
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script>
+        // Inisialisasi Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyD2jt-c0Fdy7TfmEeZR3ChEmxXO1KdJP7M",
+            authDomain: "walkietalkie-4bf33.firebaseapp.com",
+            databaseURL: "https://walkietalkie-4bf33-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "walkietalkie-4bf33",
+            storageBucket: "walkietalkie-4bf33.appspot.com",
+            messagingSenderId: "492771509392",
+            appId: "1:492771509392:web:6b53c82c3b0c822f934415",
+            measurementId: "G-FJJ4Q8P12V"
+        };
 
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyD2jt-c0Fdy7TfmEeZR3ChEmxXO1KdJP7M",
-      authDomain: "walkietalkie-4bf33.firebaseapp.com",
-      databaseURL: "https://walkietalkie-4bf33-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "walkietalkie-4bf33",
-      storageBucket: "walkietalkie-4bf33.firebasestorage.app",
-      messagingSenderId: "492771509392",
-      appId: "1:492771509392:web:6b53c82c3b0c822f934415"
-    };
+        // Initialize Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        const analytics = firebase.analytics();
+        const database = firebase.database();
+        const auth = firebase.auth();
 
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
-    const statusEl = document.getElementById("status");
-    const indicator = document.getElementById("indicator");
-    const talkBtn = document.getElementById("talk");
+        // Variabel global
+        let currentUser = null;
+        let currentChannel = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let dataArray = null;
+        let animationId = null;
 
-    let localStream;
-    let peerConnection;
-    const servers = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-    const channel = "walkietalkie-channel";
+        // Elemen DOM
+        const authContainer = document.getElementById('auth-container');
+        const appContainer = document.getElementById('app-container');
+        const usernameInput = document.getElementById('username');
+        const loginBtn = document.getElementById('login-btn');
+        const channelNameInput = document.getElementById('channel-name');
+        const joinChannelBtn = document.getElementById('join-channel');
+        const statusEl = document.getElementById('status');
+        const talkBtn = document.getElementById('talk-btn');
+        const userListEl = document.getElementById('user-list');
+        const messageLogEl = document.getElementById('message-log');
+        const visualizerEl = document.getElementById('audio-visualizer');
 
-    async function init() {
-      const auth = await firebase.auth().signInAnonymously();
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      statusEl.innerText = "Connected. Ready to talk.";
-      listenForSignals();
-    }
+        // Fungsi untuk login anonim
+        loginBtn.addEventListener('click', () => {
+            const username = usernameInput.value.trim();
+            if (!username) return;
+            
+            auth.signInAnonymously()
+                .then(() => {
+                    currentUser = {
+                        uid: auth.currentUser.uid,
+                        username: username
+                    };
+                    // Simpan info pengguna ke Realtime Database
+                    database.ref('users/' + currentUser.uid).set({
+                        username: username,
+                        online: true,
+                        lastActive: firebase.database.ServerValue.TIMESTAMP
+                    });
+                    
+                    authContainer.classList.add('hidden');
+                    appContainer.classList.remove('hidden');
+                    statusEl.textContent = 'Status: Online';
+                })
+                .catch(error => {
+                    console.error('Login error:', error);
+                    statusEl.textContent = 'Error: Gagal login';
+                });
+        });
 
-    function sendSignal(data) {
-      db.ref(channel).push(data);
-    }
+        // Fungsi untuk bergabung dengan channel
+        joinChannelBtn.addEventListener('click', () => {
+            const channelName = channelNameInput.value.trim();
+            if (!channelName || !currentUser) return;
+            
+            currentChannel = channelName;
+            statusEl.textContent = `Status: Bergabung dengan channel ${channelName}`;
+            
+            // Setup listener untuk pesan audio
+            setupChannelListeners(channelName);
+            
+            // Update status pengguna
+            database.ref('users/' + currentUser.uid).update({
+                channel: channelName,
+                lastActive: firebase.database.ServerValue.TIMESTAMP
+            });
+            
+            // Aktifkan tombol talk
+            talkBtn.disabled = false;
+        });
 
-    function listenForSignals() {
-      db.ref(channel).on("child_added", async snapshot => {
-        const data = snapshot.val();
-        if (data.sender === myId) return;
-
-        if (data.type === "offer") {
-          peerConnection = createPeerConnection();
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
-          sendSignal({ sender: myId, type: "answer", answer });
-        } else if (data.type === "answer" && peerConnection) {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-        } else if (data.type === "candidate" && peerConnection) {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        // Setup listener untuk channel
+        function setupChannelListeners(channelName) {
+            // Listen untuk pengguna dalam channel yang sama
+            database.ref('users').orderByChild('channel').equalTo(channelName).on('value', snapshot => {
+                userListEl.innerHTML = '<h3>Pengguna Online:</h3>';
+                const users = snapshot.val() || {};
+                
+                Object.keys(users).forEach(uid => {
+                    if (uid !== currentUser.uid) {
+                        const userDiv = document.createElement('div');
+                        userDiv.className = 'user-item';
+                        userDiv.textContent = users[uid].username;
+                        userListEl.appendChild(userDiv);
+                    }
+                });
+            });
+            
+            // Listen untuk pesan audio baru
+            database.ref('channels/' + channelName).on('child_added', snapshot => {
+                const message = snapshot.val();
+                if (message.sender !== currentUser.uid) {
+                    playAudioMessage(message.audioData);
+                    
+                    // Tambahkan ke log pesan
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'message-item';
+                    messageDiv.textContent = `Pesan dari ${message.senderName}`;
+                    messageLogEl.appendChild(messageDiv);
+                }
+            });
         }
-      });
-    }
 
-    function createPeerConnection() {
-      const pc = new RTCPeerConnection(servers);
-      pc.ontrack = (e) => {
-        const remoteAudio = new Audio();
-        remoteAudio.srcObject = e.streams[0];
-        remoteAudio.play();
-        indicator.style.background = 'blue';
-        setTimeout(() => indicator.style.background = 'gray', 2000);
-      };
-      pc.onicecandidate = (e) => {
-        if (e.candidate) {
-          sendSignal({ sender: myId, type: "candidate", candidate: e.candidate });
+        // Fungsi untuk memulai rekaman
+        async function startRecording(e) {
+            e.preventDefault();
+            if (isRecording || !currentChannel) return;
+            
+            statusEl.textContent = 'Status: Merekam...';
+            audioChunks = [];
+            
+            try {
+                // Setup Audio Context dan Analyser
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 64;
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                startVisualizer();
+                
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.start();
+                isRecording = true;
+                
+                mediaRecorder.ondataavailable = e => {
+                    audioChunks.push(e.data);
+                };
+                
+                mediaRecorder.onstop = () => {
+                    stopVisualizer();
+                    if (microphone) {
+                        microphone.disconnect();
+                    }
+                };
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                statusEl.textContent = 'Error: Akses mikrofon ditolak';
+            }
         }
-      };
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      return pc;
-    }
 
-    let myId = Math.random().toString(36).substr(2, 9);
+        // Fungsi untuk menghentikan rekaman
+        function stopRecording(e) {
+            e.preventDefault();
+            if (!isRecording || !mediaRecorder) return;
+            
+            mediaRecorder.stop();
+            isRecording = false;
+            
+            mediaRecorder.onstop = () => {
+                statusEl.textContent = `Status: Online di channel ${currentChannel}`;
+                
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                convertBlobToBase64(audioBlob)
+                    .then(base64Data => {
+                        // Kirim pesan audio ke Firebase
+                        const newMessageRef = database.ref('channels/' + currentChannel).push();
+                        newMessageRef.set({
+                            sender: currentUser.uid,
+                            senderName: currentUser.username,
+                            audioData: base64Data,
+                            timestamp: firebase.database.ServerValue.TIMESTAMP
+                        });
+                    });
+            };
+        }
 
-    talkBtn.addEventListener("click", async () => {
-      talkBtn.classList.add("active");
-      indicator.style.background = 'red';
-      peerConnection = createPeerConnection();
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      sendSignal({ sender: myId, type: "offer", offer });
-    });
+        // Visualizer audio
+        function startVisualizer() {
+            visualizerEl.innerHTML = '';
+            for (let i = 0; i < 32; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'visualizer-bar';
+                bar.style.left = `${i * 6}px`;
+                visualizerEl.appendChild(bar);
+            }
+            
+            function updateVisualizer() {
+                analyser.getByteFrequencyData(dataArray);
+                const bars = visualizerEl.querySelectorAll('.visualizer-bar');
+                
+                bars.forEach((bar, i) => {
+                    const height = dataArray[i] / 2;
+                    bar.style.height = `${height}px`;
+                });
+                
+                animationId = requestAnimationFrame(updateVisualizer);
+            }
+            
+            updateVisualizer();
+        }
 
-    init();
-  </script>
+        function stopVisualizer() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            visualizerEl.innerHTML = '';
+        }
+
+        // Konversi Blob ke Base64
+        function convertBlobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = reject;
+                reader.onload = () => {
+                    resolve(reader.result.split(',')[1]);
+                };
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        // Fungsi untuk memutar audio
+        function playAudioMessage(base64Data) {
+            const audio = new Audio(`data:audio/webm;base64,${base64Data}`);
+            audio.play()
+                .catch(error => {
+                    console.error('Error playing audio:', error);
+                });
+        }
+
+        // Event listeners untuk tombol talk
+        talkBtn.addEventListener('mousedown', startRecording);
+        talkBtn.addEventListener('mouseup', stopRecording);
+        talkBtn.addEventListener('touchstart', startRecording);
+        talkBtn.addEventListener('touchend', stopRecording);
+
+        // Handle ketika pengguna keluar
+        window.addEventListener('beforeunload', () => {
+            if (currentUser) {
+                database.ref('users/' + currentUser.uid).update({
+                    online: false,
+                    lastActive: firebase.database.ServerValue.TIMESTAMP
+                });
+            }
+        });
+    </script>
 </body>
 </html>
