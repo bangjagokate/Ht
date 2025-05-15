@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Walkie-Talkie with Online Users</title>
+    <title>Walkie-Talkie with Accurate Online Users</title>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -84,16 +84,33 @@
         .hidden {
             display: none;
         }
-        .user-list {
+        .user-list-container {
             margin: 15px 0;
-            padding: 10px;
+            padding: 15px;
             background-color: #f9f9f9;
             border-radius: 5px;
         }
+        .user-list-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .user-count {
+            background-color: #4285f4;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        .user-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
         .user-item {
-            display: inline-block;
-            padding: 5px 10px;
-            margin: 3px;
+            padding: 5px 12px;
             background-color: #e6f2ff;
             border-radius: 15px;
             font-size: 14px;
@@ -101,10 +118,6 @@
         .user-item.me {
             background-color: #cce0ff;
             font-weight: bold;
-        }
-        .online-count {
-            font-weight: bold;
-            margin-bottom: 5px;
         }
         .debug {
             margin-top: 20px;
@@ -130,9 +143,12 @@
         <div id="app-section" class="hidden">
             <div id="status">Connected to Public Room</div>
             
-            <div class="user-list">
-                <div class="online-count">Online Users: <span id="user-count">0</span></div>
-                <div id="user-list-container"></div>
+            <div class="user-list-container">
+                <div class="user-list-title">
+                    <span>Online Users</span>
+                    <span class="user-count" id="user-count">0</span>
+                </div>
+                <div class="user-list" id="user-list"></div>
             </div>
             
             <div id="audio-visualizer">
@@ -175,7 +191,7 @@
         const talkBtn = document.getElementById('talk-btn');
         const visualizerEl = document.getElementById('audio-visualizer');
         const debugLogEl = document.getElementById('debug-log');
-        const userListContainer = document.getElementById('user-list-container');
+        const userListEl = document.getElementById('user-list');
         const userCountEl = document.getElementById('user-count');
         
         // App state
@@ -189,6 +205,8 @@
         let animationId = null;
         let isTransmitting = false;
         let mediaStream = null;
+        let presenceRef = null;
+        let connectedRef = null;
         
         // Debug logging
         function debugLog(message) {
@@ -204,6 +222,41 @@
             bar.className = 'bar';
             bar.style.height = '1px';
             visualizerEl.appendChild(bar);
+        }
+        
+        // Improved online presence system
+        function setupPresence(userId) {
+            // Reference to presence data
+            presenceRef = database.ref(`presence/${userId}`);
+            
+            // Reference to the special '.info/connected' path
+            connectedRef = database.ref('.info/connected');
+            
+            // When the client's connection state changes
+            connectedRef.on('value', (snap) => {
+                if (snap.val() === true) {
+                    // If we lose network, remove this user's presence data
+                    const onDisconnectRef = presenceRef.onDisconnect();
+                    onDisconnectRef.remove().then(() => {
+                        debugLog("On disconnect handler set");
+                        
+                        // Set presence data
+                        presenceRef.set({
+                            userId: userId,
+                            username: currentUser.username,
+                            online: true,
+                            lastActive: firebase.database.ServerValue.TIMESTAMP
+                        }).then(() => {
+                            debugLog("Presence data set");
+                        });
+                    });
+                }
+            });
+            
+            // Cleanup when user leaves
+            window.addEventListener('beforeunload', () => {
+                presenceRef.remove();
+            });
         }
         
         // Join the room
@@ -222,6 +275,9 @@
                     username: username
                 };
                 debugLog(`Logged in as ${username} (${currentUser.uid})`);
+                
+                // Setup presence tracking
+                setupPresence(currentUser.uid);
                 
                 // Add user to room
                 await database.ref(`users/${currentUser.uid}`).set({
@@ -252,24 +308,24 @@
         function setupRoomListeners() {
             debugLog("Setting up room listeners...");
             
-            // Listen for users in the room
-            database.ref('users').orderByChild('room').equalTo(ROOM_NAME).on('value', (snapshot) => {
+            // Listen for presence data of all users in the room
+            database.ref('presence').on('value', (snapshot) => {
                 const users = snapshot.val() || {};
-                userListContainer.innerHTML = '';
+                userListEl.innerHTML = '';
                 let onlineCount = 0;
                 
-                Object.entries(users).forEach(([uid, user]) => {
-                    if (user.online) {
+                Object.entries(users).forEach(([userId, userData]) => {
+                    if (userData.online) {
                         onlineCount++;
                         const userEl = document.createElement('div');
                         userEl.className = 'user-item';
-                        if (uid === currentUser.uid) {
+                        if (userId === currentUser.uid) {
                             userEl.classList.add('me');
-                            userEl.textContent = `${user.username} (You)`;
+                            userEl.textContent = `${userData.username} (You)`;
                         } else {
-                            userEl.textContent = user.username;
+                            userEl.textContent = userData.username;
                         }
-                        userListContainer.appendChild(userEl);
+                        userListEl.appendChild(userEl);
                     }
                 });
                 
@@ -485,13 +541,20 @@
             
             if (currentUser) {
                 try {
+                    // Remove presence data
+                    if (presenceRef) {
+                        await presenceRef.remove();
+                        debugLog("Presence data removed");
+                    }
+                    
+                    // Update user status
                     await database.ref(`users/${currentUser.uid}`).update({
                         online: false,
                         lastActive: firebase.database.ServerValue.TIMESTAMP
                     });
                     debugLog("User status updated to offline");
                 } catch (error) {
-                    debugLog(`Error updating user status: ${error.message}`);
+                    debugLog(`Error cleaning up: ${error.message}`);
                 }
             }
             
@@ -501,6 +564,10 @@
             
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
+            }
+            
+            if (connectedRef) {
+                connectedRef.off();
             }
         });
     </script>
