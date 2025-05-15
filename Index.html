@@ -1,105 +1,133 @@
-<!DOCTYPE html><html>
+<!DOCTYPE html>
+<html>
 <head>
-  <title>Walkie Talkie Web</title>
+  <meta charset="UTF-8">
+  <title>WalkieTalkie Firebase</title>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; background: #111; color: #fff; }
-    button { padding: 20px; font-size: 20px; margin: 20px; border-radius: 10px; border: none; }
-    #talkBtn { background: #444; color: white; }
-    #talkBtn.active { background: red; }
-    #status { margin-top: 20px; font-size: 18px; }
-    #indicator { width: 100px; height: 100px; background: green; border-radius: 50%; margin: 20px auto; box-shadow: 0 0 10px #0f0; transition: background 0.3s, box-shadow 0.3s; }
-    #indicator.speaking { background: red; box-shadow: 0 0 20px red; }
-    #indicator.receiving { background: blue; box-shadow: 0 0 20px blue; }
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: #111;
+      color: #fff;
+    }
+    #status {
+      margin-bottom: 10px;
+    }
+    button {
+      background: #444;
+      color: white;
+      font-size: 18px;
+      padding: 15px 30px;
+      border: none;
+      border-radius: 10px;
+    }
+    button.active {
+      background: red;
+    }
+    #indicator {
+      margin-top: 20px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: gray;
+    }
   </style>
 </head>
 <body>
-  <h1>Walkie Talkie</h1>
+  <div id="status">Connecting...</div>
+  <button id="talk">Hold to Talk</button>
   <div id="indicator"></div>
-  <button id="talkBtn">Connect & Talk</button>
-  <div id="status">Not Connected</div>  <script>
-    const talkBtn = document.getElementById('talkBtn');
-    const statusText = document.getElementById('status');
-    const indicator = document.getElementById('indicator');
 
-    let socket;
-    let mediaRecorder;
-    let audioChunks = [];
-    let isTalking = false;
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
 
-    function playBeep() {
-      const beep = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YYQAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=");
-      beep.play();
-    }
-
-    async function initMic() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0 && socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(e.data);
-          }
-        };
-
-        mediaRecorder.onstart = () => {
-          audioChunks = [];
-          indicator.classList.add('speaking');
-          playBeep();
-        };
-
-        mediaRecorder.onstop = () => {
-          indicator.classList.remove('speaking');
-        };
-
-        startSocket();
-      } catch (err) {
-        statusText.innerText = 'Mic Access Denied';
-        console.error(err);
-      }
-    }
-
-    function startSocket() {
-      socket = new WebSocket('wss://demos.kaazing.com/echo');
-
-      socket.binaryType = 'arraybuffer';
-
-      socket.onopen = () => {
-        statusText.innerText = 'Connected';
-        isTalking = true;
-        talkBtn.innerText = 'Disconnect';
-        talkBtn.classList.add('active');
-        mediaRecorder.start(300);
-      };
-
-      socket.onmessage = (event) => {
-        const blob = new Blob([event.data], { type: 'audio/webm' });
-        const audio = new Audio();
-        audio.src = URL.createObjectURL(blob);
-        indicator.classList.add('receiving');
-        audio.play();
-        audio.onended = () => indicator.classList.remove('receiving');
-      };
-
-      socket.onclose = () => {
-        statusText.innerText = 'Disconnected';
-        isTalking = false;
-        talkBtn.innerText = 'Connect & Talk';
-        talkBtn.classList.remove('active');
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-      };
-
-      socket.onerror = (err) => {
-        console.error('Socket error', err);
-      };
-    }
-
-    talkBtn.onclick = () => {
-      if (isTalking) {
-        socket.close();
-      } else {
-        initMic();
-      }
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyD2jt-c0Fdy7TfmEeZR3ChEmxXO1KdJP7M",
+      authDomain: "walkietalkie-4bf33.firebaseapp.com",
+      databaseURL: "https://walkietalkie-4bf33-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "walkietalkie-4bf33",
+      storageBucket: "walkietalkie-4bf33.firebasestorage.app",
+      messagingSenderId: "492771509392",
+      appId: "1:492771509392:web:6b53c82c3b0c822f934415"
     };
-  </script></body>
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const statusEl = document.getElementById("status");
+    const indicator = document.getElementById("indicator");
+    const talkBtn = document.getElementById("talk");
+
+    let localStream;
+    let peerConnection;
+    const servers = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+    const channel = "walkietalkie-channel";
+
+    async function init() {
+      const auth = await firebase.auth().signInAnonymously();
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      statusEl.innerText = "Connected. Ready to talk.";
+      listenForSignals();
+    }
+
+    function sendSignal(data) {
+      db.ref(channel).push(data);
+    }
+
+    function listenForSignals() {
+      db.ref(channel).on("child_added", async snapshot => {
+        const data = snapshot.val();
+        if (data.sender === myId) return;
+
+        if (data.type === "offer") {
+          peerConnection = createPeerConnection();
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          sendSignal({ sender: myId, type: "answer", answer });
+        } else if (data.type === "answer" && peerConnection) {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.type === "candidate" && peerConnection) {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+      });
+    }
+
+    function createPeerConnection() {
+      const pc = new RTCPeerConnection(servers);
+      pc.ontrack = (e) => {
+        const remoteAudio = new Audio();
+        remoteAudio.srcObject = e.streams[0];
+        remoteAudio.play();
+        indicator.style.background = 'blue';
+        setTimeout(() => indicator.style.background = 'gray', 2000);
+      };
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          sendSignal({ sender: myId, type: "candidate", candidate: e.candidate });
+        }
+      };
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      return pc;
+    }
+
+    let myId = Math.random().toString(36).substr(2, 9);
+
+    talkBtn.addEventListener("click", async () => {
+      talkBtn.classList.add("active");
+      indicator.style.background = 'red';
+      peerConnection = createPeerConnection();
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      sendSignal({ sender: myId, type: "offer", offer });
+    });
+
+    init();
+  </script>
+</body>
 </html>
