@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Walkie-Talkie</title>
+    <title>Walkie-Talkie Toggle</title>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -24,67 +24,89 @@
         h1 {
             color: #4285f4;
             text-align: center;
+            margin-bottom: 20px;
         }
         input {
             padding: 10px;
             width: 100%;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             border: 1px solid #ddd;
             border-radius: 5px;
             box-sizing: border-box;
         }
         button {
-            padding: 12px;
+            padding: 15px;
             width: 100%;
-            background-color: #4285f4;
-            color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 18px;
+            font-weight: bold;
             margin-bottom: 10px;
+            transition: all 0.3s;
         }
-        button:disabled {
-            background-color: #cccccc;
+        #join-btn {
+            background-color: #4285f4;
+            color: white;
         }
         #talk-btn {
             background-color: #34a853;
-            height: 70px;
-            font-size: 18px;
-            margin: 20px 0;
+            color: white;
+        }
+        #talk-btn.off {
+            background-color: #ea4335;
         }
         #status {
             padding: 10px;
             background-color: #e8f0fe;
             border-radius: 5px;
-            margin: 10px 0;
-            text-align: center;
-        }
-        #users {
             margin: 15px 0;
+            text-align: center;
+            font-weight: bold;
         }
-        .user {
-            display: inline-block;
-            padding: 5px 10px;
-            background-color: #f1f1f1;
-            border-radius: 15px;
-            margin: 5px;
-        }
-        #audio-visualizer {
-            height: 50px;
-            background-color: #f0f0f0;
+        #user-list {
             margin: 15px 0;
             display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .user {
+            padding: 5px 12px;
+            background-color: #f1f1f1;
+            border-radius: 15px;
+        }
+        #audio-visualizer {
+            height: 60px;
+            background-color: #f0f0f0;
+            margin: 20px 0;
+            display: flex;
             align-items: flex-end;
+            justify-content: center;
+            gap: 2px;
+            padding: 0 10px;
+            border-radius: 5px;
         }
         .bar {
-            flex: 1;
+            width: 4px;
             background-color: #4285f4;
-            margin: 0 2px;
-            min-height: 1px;
+            border-radius: 2px;
+            transition: height 0.1s;
         }
         .hidden {
             display: none;
+        }
+        #message-log {
+            margin-top: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #f0f0f0;
         }
     </style>
 </head>
@@ -93,15 +115,15 @@
         <h1>Walkie-Talkie Room</h1>
         
         <div id="login-section">
-            <input type="text" id="username" placeholder="Your name">
+            <input type="text" id="username" placeholder="Masukkan nama Anda">
             <button id="join-btn">Join Room</button>
         </div>
         
         <div id="app-section" class="hidden">
-            <div id="status">Connected to: Public Room</div>
+            <div id="status">Status: Terhubung ke Public Room</div>
             
-            <div id="users">
-                <h3>Online Users:</h3>
+            <div>
+                <h3>Pengguna Online (<span id="user-count">0</span>):</h3>
                 <div id="user-list"></div>
             </div>
             
@@ -109,10 +131,10 @@
                 <!-- Visualizer bars will be added here -->
             </div>
             
-            <button id="talk-btn">Hold to Talk</button>
+            <button id="talk-btn">Klik untuk Bicara (ON)</button>
             
-            <div id="messages">
-                <h3>Messages:</h3>
+            <div>
+                <h3>Pesan Terakhir:</h3>
                 <div id="message-log"></div>
             </div>
         </div>
@@ -144,26 +166,37 @@
         const statusEl = document.getElementById('status');
         const talkBtn = document.getElementById('talk-btn');
         const userListEl = document.getElementById('user-list');
+        const userCountEl = document.getElementById('user-count');
         const messageLogEl = document.getElementById('message-log');
         const visualizerEl = document.getElementById('audio-visualizer');
         
         // App state
-        const ROOM_NAME = "public_room"; // Single default room
+        const ROOM_NAME = "public_room";
         let currentUser = null;
         let mediaRecorder = null;
         let audioChunks = [];
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let animationId = null;
+        let isTransmitting = false;
+        let stream = null;
         
         // Create visualizer bars
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 30; i++) {
             const bar = document.createElement('div');
             bar.className = 'bar';
+            bar.style.height = '1px';
             visualizerEl.appendChild(bar);
         }
         
         // Join the room
         joinBtn.addEventListener('click', async () => {
             const username = usernameInput.value.trim();
-            if (!username) return;
+            if (!username) {
+                alert("Silakan masukkan nama Anda");
+                return;
+            }
             
             try {
                 // Anonymous login
@@ -188,9 +221,12 @@
                 // Setup room listeners
                 setupRoomListeners();
                 
+                // Initialize audio context
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
             } catch (error) {
                 console.error("Join error:", error);
-                statusEl.textContent = "Error joining room";
+                statusEl.textContent = "Error: Gagal bergabung";
             }
         });
         
@@ -199,111 +235,159 @@
             database.ref('users').orderByChild('room').equalTo(ROOM_NAME).on('value', (snapshot) => {
                 const users = snapshot.val() || {};
                 userListEl.innerHTML = '';
+                let onlineCount = 0;
                 
                 Object.entries(users).forEach(([uid, user]) => {
                     if (user.online) {
-                        const userEl = document.createElement('span');
+                        onlineCount++;
+                        const userEl = document.createElement('div');
                         userEl.className = 'user';
                         userEl.textContent = user.username;
+                        if (uid === currentUser.uid) {
+                            userEl.style.backgroundColor = '#e6f2ff';
+                        }
                         userListEl.appendChild(userEl);
                     }
                 });
+                
+                userCountEl.textContent = onlineCount;
             });
             
             // Listen for messages in the room
             database.ref(`rooms/${ROOM_NAME}/messages`).on('child_added', (snapshot) => {
                 const message = snapshot.val();
-                if (message.sender !== currentUser.uid) {
-                    playAudioMessage(message.audioData);
-                    
-                    const messageEl = document.createElement('div');
-                    messageEl.textContent = `${message.senderName}: [voice message]`;
-                    messageLogEl.appendChild(messageEl);
-                }
+                
+                // Skip our own messages
+                if (message.sender === currentUser.uid) return;
+                
+                // Play received audio
+                playAudioMessage(message.audioData);
+                
+                // Add to message log
+                const messageEl = document.createElement('div');
+                messageEl.className = 'message';
+                messageEl.textContent = `${message.senderName}: mengirim pesan suara`;
+                messageLogEl.appendChild(messageEl);
+                messageLogEl.scrollTop = messageLogEl.scrollHeight;
             });
         }
         
-        // Audio functions
-        talkBtn.addEventListener('mousedown', startRecording);
-        talkBtn.addEventListener('mouseup', stopRecording);
-        talkBtn.addEventListener('touchstart', startRecording);
-        talkBtn.addEventListener('touchend', stopRecording);
+        // Toggle talk button
+        talkBtn.addEventListener('click', toggleTransmission);
         
-        async function startRecording(e) {
-            e.preventDefault();
+        async function toggleTransmission() {
+            if (isTransmitting) {
+                // Stop transmission
+                await stopRecording();
+                talkBtn.textContent = "Klik untuk Bicara (ON)";
+                talkBtn.classList.remove('off');
+                statusEl.textContent = "Status: Mode Mendengar";
+            } else {
+                // Start transmission
+                const success = await startRecording();
+                if (success) {
+                    talkBtn.textContent = "ON - Sedang Merekam (Klik untuk OFF)";
+                    talkBtn.classList.add('off');
+                    statusEl.textContent = "Status: Sedang Merekam...";
+                }
+            }
             
+            isTransmitting = !isTransmitting;
+        }
+        
+        async function startRecording() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                // Get microphone access
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 16000
+                    } 
+                });
+                
+                // Setup audio analyzer for visualization
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 64;
+                
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                // Update visualizer
+                function updateVisualizer() {
+                    analyser.getByteFrequencyData(dataArray);
+                    const bars = visualizerEl.querySelectorAll('.bar');
+                    
+                    bars.forEach((bar, i) => {
+                        const value = dataArray[i] || 0;
+                        bar.style.height = `${value / 2}px`;
+                        bar.style.backgroundColor = `rgb(66, 133, 244, ${value / 255})`;
+                    });
+                    
+                    animationId = requestAnimationFrame(updateVisualizer);
+                }
+                
+                updateVisualizer();
+                
+                // Setup media recorder
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
                 audioChunks = [];
                 
-                // Start visualizer animation
-                startVisualizer(stream);
-                
                 mediaRecorder.ondataavailable = (e) => {
-                    audioChunks.push(e.data);
+                    if (e.data.size > 0) {
+                        audioChunks.push(e.data);
+                    }
                 };
                 
-                mediaRecorder.start();
-                statusEl.textContent = "Recording...";
+                mediaRecorder.start(100); // Collect data every 100ms
+                
+                return true;
                 
             } catch (error) {
                 console.error("Recording error:", error);
-                statusEl.textContent = "Error accessing microphone";
+                statusEl.textContent = "Error: Akses mikrofon ditolak";
+                return false;
             }
         }
         
-        function startVisualizer(stream) {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const analyser = audioContext.createAnalyser();
-            const microphone = audioContext.createMediaStreamSource(stream);
-            microphone.connect(analyser);
-            
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            const bars = visualizerEl.querySelectorAll('.bar');
-            
-            function update() {
-                analyser.getByteFrequencyData(dataArray);
-                
-                bars.forEach((bar, i) => {
-                    const value = dataArray[i] / 255;
-                    bar.style.height = `${value * 100}%`;
-                });
-                
-                animationId = requestAnimationFrame(update);
-            }
-            
-            update();
-        }
-        
-        async function stopRecording(e) {
-            e.preventDefault();
+        async function stopRecording() {
             if (!mediaRecorder) return;
             
-            mediaRecorder.stop();
-            
-            mediaRecorder.onstop = async () => {
-                // Stop visualizer
-                if (animationId) {
-                    cancelAnimationFrame(animationId);
-                }
+            return new Promise((resolve) => {
+                mediaRecorder.onstop = async () => {
+                    // Stop visualization
+                    if (animationId) {
+                        cancelAnimationFrame(animationId);
+                    }
+                    
+                    // Stop all tracks
+                    if (stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                    }
+                    
+                    // Send audio if we have data
+                    if (audioChunks.length > 0) {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                        const base64Data = await blobToBase64(audioBlob);
+                        
+                        await database.ref(`rooms/${ROOM_NAME}/messages`).push().set({
+                            sender: currentUser.uid,
+                            senderName: currentUser.username,
+                            audioData: base64Data,
+                            timestamp: firebase.database.ServerValue.TIMESTAMP
+                        });
+                    }
+                    
+                    resolve();
+                };
                 
-                // Stop all tracks
-                mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                
-                // Send audio message
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
-                const base64Data = await blobToBase64(audioBlob);
-                
-                await database.ref(`rooms/${ROOM_NAME}/messages`).push().set({
-                    sender: currentUser.uid,
-                    senderName: currentUser.username,
-                    audioData: base64Data,
-                    timestamp: firebase.database.ServerValue.TIMESTAMP
-                });
-                
-                statusEl.textContent = "Connected to: Public Room";
-            };
+                mediaRecorder.stop();
+            });
         }
         
         function blobToBase64(blob) {
@@ -316,16 +400,45 @@
         
         function playAudioMessage(base64Data) {
             const audio = new Audio(`data:audio/webm;codecs=opus;base64,${base64Data}`);
+            
+            // Visual feedback when playing received audio
+            const bars = visualizerEl.querySelectorAll('.bar');
+            const animateBars = () => {
+                bars.forEach(bar => {
+                    const randomHeight = Math.floor(Math.random() * 30) + 5;
+                    bar.style.height = `${randomHeight}px`;
+                    bar.style.backgroundColor = `rgb(234, 67, 53, ${randomHeight / 50})`;
+                });
+            };
+            
+            const interval = setInterval(animateBars, 100);
+            
+            audio.onended = () => {
+                clearInterval(interval);
+                bars.forEach(bar => {
+                    bar.style.height = '1px';
+                    bar.style.backgroundColor = '#4285f4';
+                });
+            };
+            
             audio.play().catch(e => console.log("Play error:", e));
         }
         
         // Cleanup on exit
-        window.addEventListener('beforeunload', () => {
+        window.addEventListener('beforeunload', async () => {
             if (currentUser) {
-                database.ref(`users/${currentUser.uid}`).update({
+                await database.ref(`users/${currentUser.uid}`).update({
                     online: false,
                     lastActive: firebase.database.ServerValue.TIMESTAMP
                 });
+            }
+            
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
             }
         });
     </script>
