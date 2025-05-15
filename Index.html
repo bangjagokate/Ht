@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Walkie-Talkie Toggle</title>
+    <title>Walkie-Talkie Fixed</title>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -24,7 +24,6 @@
         h1 {
             color: #4285f4;
             text-align: center;
-            margin-bottom: 20px;
         }
         input {
             padding: 10px;
@@ -64,17 +63,6 @@
             text-align: center;
             font-weight: bold;
         }
-        #user-list {
-            margin: 15px 0;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .user {
-            padding: 5px 12px;
-            background-color: #f1f1f1;
-            border-radius: 15px;
-        }
         #audio-visualizer {
             height: 60px;
             background-color: #f0f0f0;
@@ -95,47 +83,39 @@
         .hidden {
             display: none;
         }
-        #message-log {
-            margin-top: 15px;
-            max-height: 200px;
-            overflow-y: auto;
-            border: 1px solid #eee;
+        .debug {
+            margin-top: 20px;
             padding: 10px;
+            background-color: #f9f9f9;
             border-radius: 5px;
-        }
-        .message {
-            margin: 5px 0;
-            padding: 5px;
-            border-bottom: 1px solid #f0f0f0;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 100px;
+            overflow-y: auto;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Walkie-Talkie Room</h1>
+        <h1>Walkie-Talkie Fixed</h1>
         
         <div id="login-section">
-            <input type="text" id="username" placeholder="Masukkan nama Anda">
+            <input type="text" id="username" placeholder="Your name">
             <button id="join-btn">Join Room</button>
         </div>
         
         <div id="app-section" class="hidden">
-            <div id="status">Status: Terhubung ke Public Room</div>
-            
-            <div>
-                <h3>Pengguna Online (<span id="user-count">0</span>):</h3>
-                <div id="user-list"></div>
-            </div>
+            <div id="status">Connected to Public Room</div>
             
             <div id="audio-visualizer">
                 <!-- Visualizer bars will be added here -->
             </div>
             
-            <button id="talk-btn">Klik untuk Bicara (ON)</button>
+            <button id="talk-btn">Click to Talk (OFF)</button>
             
-            <div>
-                <h3>Pesan Terakhir:</h3>
-                <div id="message-log"></div>
+            <div class="debug">
+                <div>Debug Info:</div>
+                <div id="debug-log"></div>
             </div>
         </div>
     </div>
@@ -165,10 +145,8 @@
         const joinBtn = document.getElementById('join-btn');
         const statusEl = document.getElementById('status');
         const talkBtn = document.getElementById('talk-btn');
-        const userListEl = document.getElementById('user-list');
-        const userCountEl = document.getElementById('user-count');
-        const messageLogEl = document.getElementById('message-log');
         const visualizerEl = document.getElementById('audio-visualizer');
+        const debugLogEl = document.getElementById('debug-log');
         
         // App state
         const ROOM_NAME = "public_room";
@@ -180,7 +158,15 @@
         let microphone = null;
         let animationId = null;
         let isTransmitting = false;
-        let stream = null;
+        let mediaStream = null;
+        
+        // Debug logging
+        function debugLog(message) {
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugLogEl.appendChild(logEntry);
+            debugLogEl.scrollTop = debugLogEl.scrollHeight;
+        }
         
         // Create visualizer bars
         for (let i = 0; i < 30; i++) {
@@ -194,17 +180,18 @@
         joinBtn.addEventListener('click', async () => {
             const username = usernameInput.value.trim();
             if (!username) {
-                alert("Silakan masukkan nama Anda");
+                alert("Please enter your name");
                 return;
             }
             
             try {
-                // Anonymous login
+                debugLog("Attempting to login...");
                 const userCredential = await auth.signInAnonymously();
                 currentUser = {
                     uid: userCredential.user.uid,
                     username: username
                 };
+                debugLog(`Logged in as ${username} (${currentUser.uid})`);
                 
                 // Add user to room
                 await database.ref(`users/${currentUser.uid}`).set({
@@ -213,6 +200,7 @@
                     room: ROOM_NAME,
                     lastActive: firebase.database.ServerValue.TIMESTAMP
                 });
+                debugLog("User added to room");
                 
                 // Switch to app view
                 loginSection.classList.add('hidden');
@@ -223,35 +211,16 @@
                 
                 // Initialize audio context
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                debugLog("AudioContext initialized");
                 
             } catch (error) {
-                console.error("Join error:", error);
-                statusEl.textContent = "Error: Gagal bergabung";
+                debugLog(`Error: ${error.message}`);
+                statusEl.textContent = "Error joining room";
             }
         });
         
         function setupRoomListeners() {
-            // Listen for users in the room
-            database.ref('users').orderByChild('room').equalTo(ROOM_NAME).on('value', (snapshot) => {
-                const users = snapshot.val() || {};
-                userListEl.innerHTML = '';
-                let onlineCount = 0;
-                
-                Object.entries(users).forEach(([uid, user]) => {
-                    if (user.online) {
-                        onlineCount++;
-                        const userEl = document.createElement('div');
-                        userEl.className = 'user';
-                        userEl.textContent = user.username;
-                        if (uid === currentUser.uid) {
-                            userEl.style.backgroundColor = '#e6f2ff';
-                        }
-                        userListEl.appendChild(userEl);
-                    }
-                });
-                
-                userCountEl.textContent = onlineCount;
-            });
+            debugLog("Setting up room listeners...");
             
             // Listen for messages in the room
             database.ref(`rooms/${ROOM_NAME}/messages`).on('child_added', (snapshot) => {
@@ -260,15 +229,10 @@
                 // Skip our own messages
                 if (message.sender === currentUser.uid) return;
                 
+                debugLog(`Received message from ${message.senderName}`);
+                
                 // Play received audio
                 playAudioMessage(message.audioData);
-                
-                // Add to message log
-                const messageEl = document.createElement('div');
-                messageEl.className = 'message';
-                messageEl.textContent = `${message.senderName}: mengirim pesan suara`;
-                messageLogEl.appendChild(messageEl);
-                messageLogEl.scrollTop = messageLogEl.scrollHeight;
             });
         }
         
@@ -277,40 +241,45 @@
         
         async function toggleTransmission() {
             if (isTransmitting) {
-                // Stop transmission
+                debugLog("Stopping transmission...");
                 await stopRecording();
-                talkBtn.textContent = "Klik untuk Bicara (ON)";
+                talkBtn.textContent = "Click to Talk (OFF)";
                 talkBtn.classList.remove('off');
-                statusEl.textContent = "Status: Mode Mendengar";
+                statusEl.textContent = "Listening Mode";
+                isTransmitting = false;
+                debugLog("Transmission stopped");
             } else {
-                // Start transmission
+                debugLog("Starting transmission...");
                 const success = await startRecording();
                 if (success) {
-                    talkBtn.textContent = "ON - Sedang Merekam (Klik untuk OFF)";
+                    talkBtn.textContent = "TRANSMITTING (Click to OFF)";
                     talkBtn.classList.add('off');
-                    statusEl.textContent = "Status: Sedang Merekam...";
+                    statusEl.textContent = "Transmitting...";
+                    isTransmitting = true;
+                    debugLog("Transmission started");
+                } else {
+                    debugLog("Failed to start transmission");
                 }
             }
-            
-            isTransmitting = !isTransmitting;
         }
         
         async function startRecording() {
             try {
-                // Get microphone access
-                stream = await navigator.mediaDevices.getUserMedia({ 
+                debugLog("Requesting microphone access...");
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         sampleRate: 16000
                     } 
                 });
+                debugLog("Microphone access granted");
                 
                 // Setup audio analyzer for visualization
                 analyser = audioContext.createAnalyser();
                 analyser.fftSize = 64;
                 
-                microphone = audioContext.createMediaStreamSource(stream);
+                microphone = audioContext.createMediaStreamSource(mediaStream);
                 microphone.connect(analyser);
                 
                 const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -330,9 +299,10 @@
                 }
                 
                 updateVisualizer();
+                debugLog("Audio visualizer started");
                 
                 // Setup media recorder
-                mediaRecorder = new MediaRecorder(stream, {
+                mediaRecorder = new MediaRecorder(mediaStream, {
                     mimeType: 'audio/webm;codecs=opus'
                 });
                 
@@ -340,78 +310,118 @@
                 
                 mediaRecorder.ondataavailable = (e) => {
                     if (e.data.size > 0) {
+                        debugLog(`Audio data available: ${e.data.size} bytes`);
                         audioChunks.push(e.data);
                     }
                 };
                 
+                mediaRecorder.onstop = () => {
+                    debugLog("MediaRecorder stopped");
+                };
+                
+                mediaRecorder.onerror = (e) => {
+                    debugLog(`MediaRecorder error: ${e.error.name}`);
+                };
+                
                 mediaRecorder.start(100); // Collect data every 100ms
+                debugLog("MediaRecorder started");
                 
                 return true;
                 
             } catch (error) {
-                console.error("Recording error:", error);
-                statusEl.textContent = "Error: Akses mikrofon ditolak";
+                debugLog(`Recording error: ${error.message}`);
+                statusEl.textContent = "Error: Microphone access denied";
                 return false;
             }
         }
         
         async function stopRecording() {
-            if (!mediaRecorder) return;
-            
             return new Promise((resolve) => {
-                mediaRecorder.onstop = async () => {
+                debugLog("Stopping recording...");
+                
+                if (!mediaRecorder) {
+                    debugLog("No media recorder to stop");
+                    resolve();
+                    return;
+                }
+                
+                // Create a temporary callback for when recording stops
+                const onStop = () => {
+                    debugLog("Recording stopped, cleaning up...");
+                    
                     // Stop visualization
                     if (animationId) {
                         cancelAnimationFrame(animationId);
+                        debugLog("Visualizer stopped");
                     }
                     
                     // Stop all tracks
-                    if (stream) {
-                        stream.getTracks().forEach(track => track.stop());
+                    if (mediaStream) {
+                        mediaStream.getTracks().forEach(track => {
+                            track.stop();
+                            debugLog(`Track ${track.kind} stopped`);
+                        });
                     }
                     
                     // Send audio if we have data
                     if (audioChunks.length > 0) {
+                        debugLog(`Sending ${audioChunks.length} audio chunks...`);
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
-                        const base64Data = await blobToBase64(audioBlob);
                         
-                        await database.ref(`rooms/${ROOM_NAME}/messages`).push().set({
-                            sender: currentUser.uid,
-                            senderName: currentUser.username,
-                            audioData: base64Data,
-                            timestamp: firebase.database.ServerValue.TIMESTAMP
-                        });
+                        blobToBase64(audioBlob)
+                            .then(base64Data => {
+                                debugLog(`Audio converted to base64 (${base64Data.length} chars)`);
+                                return database.ref(`rooms/${ROOM_NAME}/messages`).push().set({
+                                    sender: currentUser.uid,
+                                    senderName: currentUser.username,
+                                    audioData: base64Data,
+                                    timestamp: firebase.database.ServerValue.TIMESTAMP
+                                });
+                            })
+                            .then(() => {
+                                debugLog("Audio message sent successfully");
+                                resolve();
+                            })
+                            .catch(error => {
+                                debugLog(`Error sending audio: ${error.message}`);
+                                resolve();
+                            });
+                    } else {
+                        debugLog("No audio data to send");
+                        resolve();
                     }
                     
-                    resolve();
+                    // Clean up
+                    mediaRecorder.removeEventListener('stop', onStop);
                 };
                 
+                mediaRecorder.addEventListener('stop', onStop, { once: true });
                 mediaRecorder.stop();
             });
         }
         
         function blobToBase64(blob) {
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = () => reject(new Error("Failed to read blob"));
                 reader.readAsDataURL(blob);
             });
         }
         
         function playAudioMessage(base64Data) {
+            debugLog("Playing received audio...");
             const audio = new Audio(`data:audio/webm;codecs=opus;base64,${base64Data}`);
             
             // Visual feedback when playing received audio
             const bars = visualizerEl.querySelectorAll('.bar');
-            const animateBars = () => {
+            const interval = setInterval(() => {
                 bars.forEach(bar => {
                     const randomHeight = Math.floor(Math.random() * 30) + 5;
                     bar.style.height = `${randomHeight}px`;
                     bar.style.backgroundColor = `rgb(234, 67, 53, ${randomHeight / 50})`;
                 });
-            };
-            
-            const interval = setInterval(animateBars, 100);
+            }, 100);
             
             audio.onended = () => {
                 clearInterval(interval);
@@ -419,26 +429,39 @@
                     bar.style.height = '1px';
                     bar.style.backgroundColor = '#4285f4';
                 });
+                debugLog("Audio playback finished");
             };
             
-            audio.play().catch(e => console.log("Play error:", e));
+            audio.onerror = (e) => {
+                debugLog(`Audio play error: ${e.target.error}`);
+                clearInterval(interval);
+            };
+            
+            audio.play().catch(e => debugLog(`Audio play failed: ${e.message}`));
         }
         
         // Cleanup on exit
         window.addEventListener('beforeunload', async () => {
+            debugLog("Cleaning up before unload...");
+            
             if (currentUser) {
-                await database.ref(`users/${currentUser.uid}`).update({
-                    online: false,
-                    lastActive: firebase.database.ServerValue.TIMESTAMP
-                });
+                try {
+                    await database.ref(`users/${currentUser.uid}`).update({
+                        online: false,
+                        lastActive: firebase.database.ServerValue.TIMESTAMP
+                    });
+                    debugLog("User status updated to offline");
+                } catch (error) {
+                    debugLog(`Error updating user status: ${error.message}`);
+                }
             }
             
             if (animationId) {
                 cancelAnimationFrame(animationId);
             }
             
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
             }
         });
     </script>
